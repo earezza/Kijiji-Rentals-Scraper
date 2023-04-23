@@ -102,10 +102,16 @@ if __name__ == '__main__':
     done = False
     while not done:
         
-        page_number = soup.find("span", {"class": "selected"}).get_text()
-        print("Collecting ad info page %s..."%page_number)
-        
-        df_new = collect_ad_info(ads, df_new, timestamp)
+        try:
+            page_number = soup.find("span", {"class": "selected"}).get_text()
+            print("Collecting ad info page %s..."%page_number)
+            
+            df_new = collect_ad_info(ads, df_new, timestamp)
+        except:
+            with open('htmlerror.txt', 'w') as f:
+                f.write(str(soup))
+            print('Check htmlerror.txt and/or run again...')
+            exit()
         
         # To get next page ads
         try:
@@ -116,7 +122,9 @@ if __name__ == '__main__':
             ads = soup.find_all("div", {"class": "search-item top-feature"})
             ads = ads + soup.find_all("div", {"class": "search-item regular-ad"})
         except:
-            print("No more pages...")
+            print("No more pages...or run again if failed...")
+            with open('htmlerror.txt', 'w') as f:
+                f.write(str(soup))
             done = True
     
     print("Updating file, removing duplicate listings...")
