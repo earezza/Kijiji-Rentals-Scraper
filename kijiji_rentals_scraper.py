@@ -16,7 +16,7 @@ version: 2 (updated for Kijiji website changes from v1 compatibility)
 
 
 TODO:
-    Make run parallel with multiprocessing
+    Make run parallel with multiprocessing since it takes ~2.5 hours on first run (at 88 pages, 40 ads/page)
 
 @author: eric
 """
@@ -178,7 +178,7 @@ if __name__ == '__main__':
     else:
         print("Creating save file %s..."%args.file)
         #df_old = pd.DataFrame(columns=["Title", "Price", "Date", "Location", "Description", "NearestIntersection", "Bedrooms", "Link"])
-        df_old = pd.DataFrame(columns=["Title", "Price", "Location", "Description", "PostingDate", "Poster", "AdURL", "ScrapeDate"])
+        df_old = pd.DataFrame(columns=["Title", "Price", "Location", "Description", "PostingDate", "Poster", "AdURL", "AdId", "ScrapeDate"])
         
         
     print("Fetching kijiji.ca...")
@@ -192,7 +192,7 @@ if __name__ == '__main__':
     rentals_url = HOME_URL[:-1] + rentals_links[0]['href']
     
     # DataFrame to save rental info
-    df_new = pd.DataFrame(columns=["Title", "Price", "Location", "Description", "PostingDate", "Poster", "AdURL", "ScrapeDate"])
+    df_new = pd.DataFrame(columns=["Title", "Price", "Location", "Description", "PostingDate", "Poster", "AdURL", "AdId", "ScrapeDate"])
     
     # Start collecting ads page-by-page
     print("Fetching rental listings...")
@@ -243,6 +243,7 @@ if __name__ == '__main__':
     df = pd.concat([df_old, df_new], ignore_index=True)
     # Remove duplicates
     df.drop_duplicates(subset=['AdURL'], ignore_index=True, inplace=True)
+    df.drop_duplicates(subset=['AdId'], ignore_index=True, inplace=True)
     df.drop_duplicates(subset=['Title', 'Location', 'Poster', 'Description'], ignore_index=True, inplace=True)
     
     print("Writing to file...")
