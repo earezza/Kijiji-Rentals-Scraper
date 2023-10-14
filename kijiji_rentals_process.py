@@ -7,8 +7,10 @@ Description:
     Takes raw kijiji ad info from kijiji_rentals_scraper.py and applies filters
     and processing to produce more structured data output to .csv.
     
-    Useful columns appended to data:
-        "NumberOfRooms", "PriceAvailable", "RentPrice", "FemaleOnly", "MaleOnly", "Sublet", "PricePerRoom"
+    Additional columns appended to data:
+        "Longitude", "Latitude", 
+        "Sublet", 
+        "StudentPreferred", "FemalePreferred", "MalePreferred", "OtherPreferred", 
     
 
 @author: eric
@@ -16,20 +18,28 @@ Description:
 
 import os
 import datetime
+import time
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import tqdm
+import time
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
+#from timezonefinder import TimezoneFinder
 import argparse
 
 
 describe_help = 'python kijiji_rentals_process.py --file ads.csv'
 parser = argparse.ArgumentParser(description=describe_help)
 # User defined options
-parser.add_argument('-f', '--file', help='File (.csv) of ads info to filter', type=str, default="ads.csv")
+parser.add_argument('-r', '--raw_file', help='File (.csv) of ads info to process', type=str, default="ads.csv")
+parser.add_argument('-o', '--output_file', help='File (.csv) for processed ad data', type=str, default="ads_cleaned.csv")
+parser.add_argument('--city', help='City to default to for long/lat coordinates if ad location is unsearchable', type=str, default="")
+parser.add_argument('--country', help='Country to default to for long/lat coordinates if ad location is unsearchable', type=str, default="Canada")
 args = parser.parse_args()
 
-
+'''
 beds_map = {'1 + Den': '2', '2 + Den': '3', 
            '3 + Den': '4', '4 + Den': '5', 
            '5 + Den': '6', '6 + Den': '7',
@@ -65,19 +75,128 @@ def get_ads_with_pattern(df, column, pattern):
     colsearch = df_temp[column].str.lower()
     
     return df_temp[colsearch.str.contains(pattern)]
+'''
+
+
+def get_coordinates(df):
+    geolocator = Nominatim(user_agent="kijiji", timeout=3)
+    geocode = RateLimiter(geolocator.geocode,
+                          max_retries=3, 
+                          min_delay_seconds=1, 
+                          error_wait_seconds=2,
+                          swallow_exceptions=True)
     
+    # Iterate over locations
+    for i in tqdm.tqdm(df.index):
+        # Ignore if coordinates already exist
+        if np.isnan(df.loc[i, 'Longitude']) and np.isnan(df.loc[i, 'Latitude']):
+            try:
+                loc = geolocator.geocode(df['Location'][i])
+                time.sleep(1)
+                # Try again without postal code if nothing returned
+                if loc == None:
+                    loc = geolocator.geocode(','.join(df['Location'][i].split(',')[:-1]))
+                    time.sleep(1)
+                # If still no coordinates, use default city + country
+                if loc == None:
+                    loc = geolocator.geocode(args.city.capitalize() + ', ' + args.country.capitalize())
+                    time.sleep(1)
+                df.loc[i, 'Longitude'] = loc.longitude
+                df.loc[i, 'Latitude'] = loc.latitude
+                
+            except Exception as e:
+                print(e)
+                print('Could not retrieve coordinates %s'%df['Location'][i])
+                continue
+        
+    return df
+
+
+def anonymize_values(series):
+    mapping = dict(zip(series.unique(), range(0, len(series.unique()))))
+    series = series.map(mapping).astype('int32')
+    return series
+    
+# pd.DataFrame(columns=["Title", "Price", "Location", "Description", "PostingDate", "Poster", "AdURL", "AdId", "ScrapeDate", "Longitude", "Latitude"])
 
 if __name__ == '__main__':
     
-    # Load previously saved file
-    if os.path.isfile(args.file):
-        print("Loading %s..."%args.file)
-        df_raw = pd.read_csv(args.file)
+    # Load raw data file
+    if os.path.isfile(args.raw_file):
+        print("Loading raw file %s..."%args.raw_file)
+        df_raw = pd.read_csv(args.raw_file)
         df = df_raw.copy()
     else:
-        print("%s could not be found..."%args.file)
+        print("%s could not be found..."%args.raw_file)
         exit()
     
+    # Load previous data file if exists
+    if os.path.isfile(args.output_file):
+        print("Loading cleaned %s..."%args.output_file)
+        df_cleaned = pd.read_csv(args.output_file)
+    else:
+        print("Writing cleaned data to %s"%args.output_file)
+        
+    # Assign Poster with anonymized IDs
+    df['Poster'] = anonymize_values(df['Poster'])
+    
+    # Assign AdURL with anonymized IDs
+    df['AdURL'] = anonymize_values(df['AdURL'])
+    
+    # Assign AdId with anonymized IDs
+    df['AdId'] = anonymize_values(df['AdId'])
+        
+    # Format Price
+    df['Price'] = df['Price'].str.replace('$', '', regex=False)
+    df['Price'] = df['Price'].str.replace(',', '', regex=False)
+    df['Price'].replace(to_replace='Please Contact', value=np.nan, inplace=True)
+    df['Price'].replace(to_replace='Free', value=np.nan, inplace=True)
+    df['Price'].replace(to_replace='Swap/Trade', value=np.nan, inplace=True)
+    df['Price'] = df['Price'].astype('float32')
+    
+    # Format PostingDate
+    df['PostingDate'] = pd.to_datetime(df['PostingDate'], format='%Y-%m-%dT%H:%M:%S', utc=True)
+    
+    # Modify binary values
+    for c in df.columns:
+        print(c)
+        if 'Yes' in df[c].values or 'No' in df[c].values:
+            print('\tModifying...\n')
+            df[c] = df[c].map({'Yes': 1, 'No': 0}, na_action='ignore').astype('Int16')
+    
+    # Format Move-In-Date
+    if 'Move-In-Date' in df.columns:
+        df['Move-In-Date'] = pd.to_datetime(df['Move-In-Date'], format='%B-%d,-%Y', utc=True)
+    
+    # Format number of Parking-Included
+    if 'Parking-Included' in df.columns:
+        df['Parking-Included'].replace(to_replace='Not-Available', value='0', inplace=True)
+        df['Parking-Included'] = df['Parking-Included'].str.extract(r'(\d+)')
+        df['Parking-Included'] = df['Parking-Included'].astype('float16')
+        
+    
+    # Format Location coordinates for map visualizations
+    df['Longitude'] = np.nan
+    df['Latitude'] = np.nan
+    print("Grab a coffee, this will take some time!\n")
+    while df['Longitude'].isna().any() and df['Latitude'].isna().any():
+        print("Querying coordinates...")
+        df = get_coordinates(df)
+    df['Longitude'] = df['Longitude'].astype('float32')
+    df['Latitude'] = df['Latitude'].astype('float32')
+    
+    
+    
+    # Extract specific rental info from description
+    df['Description'] = df['Description'].str.lower()
+    
+    
+    
+    
+    
+    
+    
+    '''
     # Fill in number of rooms from raw data and searching ad title + description 
     print("Filling in number of rooms info...")
     bed_strings = ['bd', 'bed', 'room', 'bdr', 'bedr', 'bedrm', 'bdrm', 'bdroom', 'bedroom']
@@ -128,9 +247,26 @@ if __name__ == '__main__':
     sublets.drop_duplicates(inplace=True)
     df['Sublet'] = df.index.isin(sublets.index)
     
+    print("Collecting student-only rentals...")
+    student_strings = ['student only', 'students only', 'student-only', 'students-only', 'all student', 'all students',
+                   'for student', 'for students', 'student only', 'students only', 'student-only', 'students-only', 'all student', 'all students',
+                   'student preferred', 'students preferred', 'student preferred', 'students preferred']
+    
+    # Look in title and description for info
+    students = pd.DataFrame()
+    for p in student_strings:
+        students = pd.concat([students, get_ads_with_pattern(df, 'Title', p)])
+        students.drop_duplicates(inplace=True)
+        students = pd.concat([students, get_ads_with_pattern(df, 'Description', p)])
+        students.drop_duplicates(inplace=True)
+        
+    df['StudentOnly'] = df.index.isin(students.index)
+    
     print("Collecting female-only rentals...")
     girl_strings = ['for female', 'for females', 'female only', 'females only', 'female-only', 'females-only', 'all female', 'all females',
-                   'for girl', 'for girls', 'girl only', 'girls only', 'girl-only', 'girls-only', 'all girl', 'all girls']
+                   'for girl', 'for girls', 'girl only', 'girls only', 'girl-only', 'girls-only', 'all girl', 'all girls',
+                   'female preferred', 'females preferred', 'girl preferred', 'girls preferred',
+                   'lady', 'ladies']
     
     # Look in title and description for info
     girls = pd.DataFrame()
@@ -144,7 +280,9 @@ if __name__ == '__main__':
         
     print("Collecting male-only rentals...")
     guy_strings = ['for male', 'for males', ' male only', ' males only', 'male-only', 'males-only', 'all male', 'all males',
-                   'for boy', 'for boys', 'boy only', 'boys only', 'boy-only', 'boys-only', 'all boy', 'all boys']
+                   'for boy', 'for boys', 'boy only', 'boys only', 'boy-only', 'boys-only', 'all boy', 'all boys',
+                   ' male preferred', ' males preferred', 'boy preferred', 'boys preferred',
+                   ' man', ' men']
     
     # Look in title and description for info
     guys = pd.DataFrame()
@@ -157,8 +295,8 @@ if __name__ == '__main__':
     df['MaleOnly'] = df.index.isin(guys.index)
     
     df['PricePerRoom'] = df['RentPrice'] / df['NumberOfRooms']
-    
+    '''
     print("Writing to file...")
-    df.to_csv(args.file.replace('.csv', '_cleaned.csv'), sep=',', header=True, index=False)
+    df.to_csv(args.output_file, sep=',', header=True, index=False)
     print("Done!")
     
