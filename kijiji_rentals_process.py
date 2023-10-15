@@ -77,10 +77,11 @@ def anonymize_values(series):
     mapping = dict(zip(series.unique(), range(0, len(series.unique()))))
     series = series.map(mapping).astype('uint32')
     return series
-    
-# pd.DataFrame(columns=["Title", "Price", "Location", "Description", "PostingDate", "Poster", "AdURL", "AdId", "ScrapeDate", "Longitude", "Latitude"])
+
 
 if __name__ == '__main__':
+    
+    # Main df columns are pd.DataFrame(columns=["Title", "Price", "Location", "Description", "PostingDate", "Poster", "AdURL", "AdId", "ScrapeDate", "Longitude", "Latitude"])
     
     # Load raw data file
     if os.path.isfile(args.raw_file):
@@ -113,6 +114,7 @@ if __name__ == '__main__':
     df['Commercial'] = (df['RentalCategory'] == 'Commercial-Office-Space').astype('uint8')
     df['Residential'] = (df['RentalCategory'].isin(['Apartments-Condos', 'Room-Rental-Roommate', 'Short-Term-Rental'])).astype('uint8')
     
+    
     # Assign Poster with anonymized IDs
     df['Poster'] = anonymize_values(df['Poster'])
     
@@ -122,6 +124,7 @@ if __name__ == '__main__':
     # Assign AdId with anonymized IDs
     df['AdId'] = anonymize_values(df['AdId'])
         
+    
     # Format Price
     df['Price'] = df['Price'].str.replace('$', '', regex=False)
     df['Price'] = df['Price'].str.replace(',', '', regex=False)
@@ -130,8 +133,10 @@ if __name__ == '__main__':
     df['Price'].replace(to_replace='Swap/Trade', value=np.nan, inplace=True)
     df['Price'] = df['Price'].astype('float32')
     
+    
     # Format PostingDate
     df['PostingDate'] = pd.to_datetime(df['PostingDate'], format='%Y-%m-%dT%H:%M:%S', utc=True)
+    
     
     # Modify binary values
     for c in df.columns[df.dtypes == 'object']:
@@ -139,9 +144,11 @@ if __name__ == '__main__':
             df[c].replace(to_replace='Not-Available', value='No', inplace=True)
             df[c] = df[c].map({'Yes': 1, 'No': 0}, na_action='ignore').astype('float16')
     
+    
     # Format Move-In-Date
     if 'Move-In-Date' in df.columns:
         df['Move-In-Date'] = pd.to_datetime(df['Move-In-Date'], format='%B-%d,-%Y', utc=True)
+    
     
     # Format number of Parking-Included
     if 'Parking-Included' in df.columns:
@@ -149,7 +156,45 @@ if __name__ == '__main__':
         df['Parking-Included'].replace(to_replace='No', value='0', inplace=True)
         df['Parking-Included'] = df['Parking-Included'].str.extract(r'(\d+)')
         df['Parking-Included'] = df['Parking-Included'].astype('float16')
-        
+    
+    
+    # Extract specific rental info from title and description text
+    df['Title'] = df['Title'].str.lower()
+    df['Description'] = df['Description'].str.lower()
+    text = (df['Title'] + df['Description']).str.replace('\n', '')
+    
+    # Keywords to regex search (including possible typos)
+    girls = ['girl', 'girls', 'female', 'females', 'woman', 'women', 'lady', 'ladies']
+    boys = ['boy', 'boys', 'male', 'males', 'man', 'men', 'guy', 'guys']
+    sublet = ['sublet', 'sublets', 'subletting' 'subleting']
+    students = ['student', 'students']
+    preference = ["prefer", 'preference', 'prefered', 'preferred']
+
+    # Find Preferene-Male
+    df['Preference-Male'] = text.str.extract(r'((\b[^fe]%s\b).+(\bonly\b))'%('|'.join(boys)), expand=False)[0].notnull().astype('bool')
+    df['Preference-Male'] = df['Preference-Male'] | text.str.extract(r'((\bonly\b).+(\b[^fe]%s\b))'%('|'.join(boys)), expand=False)[0].notnull().astype('bool')
+    df['Preference-Male'] = df['Preference-Male'] | text.str.extract(r'((\b[^fe]%s\b).+(\b%s\b))'%('|'.join(boys), '|'.join(preference)), expand=False)[0].notnull().astype('bool')
+    df['Preference-Male'] = df['Preference-Male'] | text.str.extract(r'((\bp%s\b).+(\b[^fe]%s\b))'%('|'.join(preference), '|'.join(boys)), expand=False)[0].notnull().astype('bool')          
+    df['Preference-Male'] = df['Preference-Male'] | text.str.extract(r'((\ball\b).+(\b[^fe]%s\b))'%('|'.join(boys)), expand=False)[0].notnull().astype('bool') 
+    df['Preference-Male'] = df['Preference-Male'] | text.str.extract(r'((\bno\b)\s(\b%s\b))'%('|'.join(girls)), expand=False)[0].notnull().astype('bool')
+    
+    # Find Preference-Female
+    df['Preference-Female'] = text.str.extract(r'((\b%s\b).+(\bonly\b))'%('|'.join(girls)), expand=False)[0].notnull().astype('bool')
+    df['Preference-Female'] = df['Preference-Female'] | text.str.extract(r'((\bonly\b).+(\b%s\b))'%('|'.join(girls)), expand=False)[0].notnull().astype('bool')
+    df['Preference-Female'] = df['Preference-Female'] | text.str.extract(r'((\b%s\b).+(\b%s\b))'%('|'.join(girls), '|'.join(preference)), expand=False)[0].notnull().astype('bool')
+    df['Preference-Female'] = df['Preference-Female'] | text.str.extract(r'((\b%s\b).+(\b%s\b))'%('|'.join(preference), '|'.join(girls)), expand=False)[0].notnull().astype('bool')          
+    df['Preference-Female'] = df['Preference-Female'] | text.str.extract(r'((\ball\b).+(\b%s\b))'%('|'.join(girls)), expand=False)[0].notnull().astype('bool')
+    df['Preference-Female'] = df['Preference-Female'] | text.str.extract(r'((\bno\b)\s(\b%s\b))'%('|'.join(boys)), expand=False)[0].notnull().astype('bool')
+    
+    # Find Sublets
+    df['Sublet'] = text.str.extract(r'(\b%s\b)'%('|'.join(sublet)), expand=False).notnull().astype('bool')
+    
+    # Find Students
+    df['Students'] = text.str.extract(r'(\b%s\b)'%('|'.join(students)), expand=False).notnull().astype('bool')
+    
+    # Find Preference-Other
+    df['Preference'] = text.str.extract(r'(\b%s\b)'%('|'.join(preference)), expand=False).notnull().astype('bool')
+    
     
     # Format Location coordinates for map visualizations
     df['Longitude'] = np.nan
@@ -160,44 +205,7 @@ if __name__ == '__main__':
         df = get_coordinates(df)
     df['Longitude'] = df['Longitude'].astype('float32')
     df['Latitude'] = df['Latitude'].astype('float32')
-    
-    '''
-    # ------------------- Difficult Part ------------------
-    # Extract specific rental info from title and description text
-    df['Title'] = df['Title'].str.lower()
-    df['Description'] = df['Description'].str.lower()
-    text = (df['Title'] + df['Description']).str.replace('\n', '')
-    
-    # Keywords to search
-    girls = ['girl', 'female', 'woman', 'women', 'lady', 'ladies']
-    boys = ['boy', 'male', 'man', 'men', 'guy', 'dude']
-    sublet = ['sublet']
-    students = ['student']
-    preference = ["prefer", "only"]
-    
-    
-    # Use regex
-    text.str.extract(r'(\S+)')
-    
-    
-    # Find Preferene-Male
-    df['Preference-Male'] = ( text.str.contains('|'.join(boys)) & (~text.str.contains('|'.join(girls))) )
-    
-    # Find Preference-Female
-    df['Preference-Feale'] = ( (text.str.contains('|'.join(girls))) )
-    
-    # Find Sublets
-    df['Sublet'] = ( (text.str.contains('|'.join(sublet))) )
-    
-    # Find Students
-    df['Students'] = ( (text.str.contains('|'.join(students))) )
-    
-    # Find Preference-Other
-    df['Preference'] = ( (text.str.contains('|'.join(preference))) )
-    
-    text[text.str.contains('|'.join(girls))]
-    text[( text.str.contains('|'.join(boys)) ) & (~text.str.contains('|'.join(girls)))]
-    '''
+
     
     # Write final data to file
     print("Writing to file...")

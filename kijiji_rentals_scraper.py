@@ -166,6 +166,21 @@ def collect_ads_info(ad_links, df_new):
     
     return df_new
 
+def write_data(df_old, df_new, filename):
+    
+    print("Updating file, removing duplicate listings...")
+    # Add updates to old data
+    df = pd.concat([df_old, df_new], ignore_index=True)
+    # Remove duplicates
+    df.drop_duplicates(subset=['AdURL'], ignore_index=True, inplace=True)
+    df.drop_duplicates(subset=['AdId'], ignore_index=True, inplace=True)
+    df.drop_duplicates(subset=['Title', 'Location', 'Poster', 'Description'], ignore_index=True, inplace=True)
+    
+    print("Writing to file...")
+    df.to_csv(filename, sep=',', header=True, index=False)
+    
+    return df
+
 
 if __name__ == '__main__':
     
@@ -184,12 +199,20 @@ if __name__ == '__main__':
     print("Fetching kijiji.ca...")
     # Kijiji homepage
     HOME_URL = 'https://www.kijiji.ca/'
-    page = requests.get(HOME_URL + args.city)
+    session = requests.Session()
+    retry = Retry(connect=3, backoff_factor=0.5)
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    page = requests.get(HOME_URL + args.city, timeout=5)
     soup = BeautifulSoup(page.content, "html.parser")
     
     # Get url extension for rental listings - page 1
-    rentals_links = [i for i in soup.find_all(href=True) if 'for-rent' in i['href']]
-    rentals_url = HOME_URL[:-1] + rentals_links[0]['href']
+    try:
+        rentals_links = [i for i in soup.find_all(href=True) if 'for-rent' in i['href']]
+        rentals_url = HOME_URL[:-1] + rentals_links[0]['href']
+    except IndexError:
+        print("Check URL of city and input --city with URL after %s"%HOME_URL)
+        exit()
     
     # DataFrame to save rental info
     df_new = pd.DataFrame(columns=["Title", "Price", "Location", "Description", "PostingDate", "Poster", "AdURL", "AdId", "ScrapeDate"])
@@ -203,7 +226,11 @@ if __name__ == '__main__':
         
         try:
             print("Page %s\n"%page_number)
-            page = requests.get(rentals_url)
+            session = requests.Session()
+            retry = Retry(connect=3, backoff_factor=0.5)
+            adapter = HTTPAdapter(max_retries=retry)
+            session.mount('http://', adapter)
+            page = requests.get(rentals_url, timeout=5)
             soup = BeautifulSoup(page.content, "html.parser")
             
             # Get list of ads
@@ -237,17 +264,16 @@ if __name__ == '__main__':
             
         except KeyboardInterrupt:
             done = True
+        
+        except ConnectionError as e:
+            print(e)
+            
+        finally:
+            # Write to file in case errors or ending session
+            df = write_data(df_old, df_new, args.file)
     
-    print("Updating file, removing duplicate listings...")
-    # Add updates to old data
-    df = pd.concat([df_old, df_new], ignore_index=True)
-    # Remove duplicates
-    df.drop_duplicates(subset=['AdURL'], ignore_index=True, inplace=True)
-    df.drop_duplicates(subset=['AdId'], ignore_index=True, inplace=True)
-    df.drop_duplicates(subset=['Title', 'Location', 'Poster', 'Description'], ignore_index=True, inplace=True)
-    
-    print("Writing to file...")
-    df.to_csv(args.file, sep=',', header=True, index=False)
+    # Write to file
+    df = write_data(df_old, df_new, args.file)
     print("Done!")
 
     
