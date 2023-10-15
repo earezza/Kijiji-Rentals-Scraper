@@ -143,6 +143,8 @@ if __name__ == '__main__':
         if 'Yes' in df[c].unique() or 'No' in df[c].unique():
             df[c].replace(to_replace='Not-Available', value='No', inplace=True)
             df[c] = df[c].map({'Yes': 1, 'No': 0}, na_action='ignore').astype('float16')
+        if 'Not-Available' in df[c].unique():
+            df[c].replace(to_replace='Not-Available', value=np.nan, inplace=True)
     
     
     # Format Move-In-Date
@@ -193,8 +195,11 @@ if __name__ == '__main__':
     df['Students'] = text.str.extract(r'(\b%s\b)'%('|'.join(students)), expand=False).notnull().astype('bool')
     
     # Find Preference-Other
-    df['Preference'] = text.str.extract(r'(\b%s\b)'%('|'.join(preference)), expand=False).notnull().astype('bool')
+    df['Preference-Any'] = text.str.extract(r'(\b%s\b)'%('|'.join(preference)), expand=False).notnull().astype('bool')
     
+    print("Writing to file...")
+    df.to_csv(args.output_file, sep=',', header=True, index=False)
+    print("Continuing to get longitude/latitude info...")
     
     # Format Location coordinates for map visualizations
     df['Longitude'] = np.nan
@@ -206,6 +211,8 @@ if __name__ == '__main__':
     df['Longitude'] = df['Longitude'].astype('float32')
     df['Latitude'] = df['Latitude'].astype('float32')
 
+    # Drop unnecessary columns
+    df = df.drop(columns=['Title', 'Description', 'AdURL'])
     
     # Write final data to file
     print("Writing to file...")
