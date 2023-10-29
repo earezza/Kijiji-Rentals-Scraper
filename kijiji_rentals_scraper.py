@@ -107,9 +107,9 @@ def collect_ads_info(ad_links, df_new):
                     if 'unittype' in detail.find('use')['xlink:href']:
                         df_new.loc[row, "UnitType"] = detail.get_text()
                     elif 'numberbedrooms' in detail.find('use')['xlink:href']:
-                        df_new.loc[row, "Bedrooms"] = detail.get_text().split()[-1]
+                        df_new.loc[row, "Bedrooms"] = pd.Series(detail.get_text()).str.extract(r'(\d+)')[0][0] # detail.get_text().split()[-1]
                     elif 'numberbathrooms' in detail.find('use')['xlink:href']:
-                        df_new.loc[row, "Bathrooms"] = detail.get_text().split()[-1]
+                        df_new.loc[row, "Bathrooms"] = pd.Series(detail.get_text()).str.extract(r'(\d+)')[0][0] # detail.get_text().split()[-1]
                     elif 'furnished' in detail.find('use')['xlink:href']:
                         df_new.loc[row, "Furnished"] = detail.get_text().split()[-1]
                     elif 'petsallowed' in detail.find('use')['xlink:href']:
@@ -175,6 +175,9 @@ def write_data(df_old, df_new, filename):
     df.drop_duplicates(subset=['AdURL'], ignore_index=True, inplace=True)
     df.drop_duplicates(subset=['AdId'], ignore_index=True, inplace=True)
     df.drop_duplicates(subset=['Title', 'Location', 'Poster', 'Description'], ignore_index=True, inplace=True)
+    
+    cities = df['AdURL'].str.split('/', expand=True)
+    df['City'] = cities[4]
     
     print("Writing to file...")
     df.to_csv(filename, sep=',', header=True, index=False)
