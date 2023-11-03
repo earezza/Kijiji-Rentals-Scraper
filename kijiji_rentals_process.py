@@ -83,28 +83,6 @@ fr_en_translation = {
     }
 
 
-'''
-# To merge all city's ads into one file
-files = [ i for i in os.listdir() if '_processed.csv' in i ]
-df_all = pd.DataFrame()
-for f in files:
-    df = pd.read_csv(f)
-    for key, value in fr_en_translation.items():
-        if key in df.columns and value in df.columns:
-            df[value] = df[value].combine_first(df[key])
-            df.drop(columns=key, inplace=True)
-        
-    df.rename(mapper=fr_en_translation, axis=1, inplace=True)
-    print(f, len(df.columns))
-    #df.reset_index(inplace=True, drop=True)
-    #df_all.reset_index(inplace=True, drop=True)
-    df_all = pd.concat([df_all, df], axis=0, ignore_index=True)
-    #df_all.append(df, ignore_index=True)
-df_all.to_csv('canada_ads_2023-10-16.csv', sep=',', header=True, index=False)
-
-'''
-
-
 def get_coordinates(df):
     geolocator = Nominatim(user_agent="kijiji", timeout=3)
     geocode = RateLimiter(geolocator.geocode,
@@ -112,7 +90,6 @@ def get_coordinates(df):
                           min_delay_seconds=1, 
                           error_wait_seconds=2,
                           swallow_exceptions=True)
-    
     # Iterate over locations
     for i in tqdm.tqdm(df.index):
         # Ignore if coordinates already exist
@@ -157,14 +134,7 @@ if __name__ == '__main__':
     else:
         print("%s could not be found..."%args.raw_file)
         exit()
-    '''
-    # Load previous data file if exists
-    if os.path.isfile(args.output_file):
-        print("Loading cleaned %s..."%args.output_file)
-        df_cleaned = pd.read_csv(args.output_file)
-    else:
-        print("Writing cleaned data to %s"%args.output_file)
-    '''
+
     # Apply translation mapping
     for key, value in fr_en_translation.items():
         if key in df.columns and value in df.columns:
@@ -183,8 +153,9 @@ if __name__ == '__main__':
     df['RentalCategory'] = df['RentalCategory'].map(category_mapping)
     
     # Add columns to distinguish rental type
-    df['Commercial'] = (df['RentalCategory'] == 'Commercial-Office-Space').astype('uint8')
-    df['Residential'] = (df['RentalCategory'].isin(['Apartments-Condos', 'Room-Rental-Roommate', 'Short-Term-Rental'])).astype('uint8')
+    df['Commercial'] = (df['RentalCategory'] == 'Commercial-Office-Space').astype('boolean')
+    df['Residential'] = (df['RentalCategory'].isin(['Apartments-Condos', 'Room-Rental-Roommate', 'Short-Term-Rental'])).astype('boolean')
+    #df['RentalType'] = np.where(df['RentalCategory'] == 'Commercial-Office-Space', 'Commercial', 'Residential')
     
     
     # Assign Poster with anonymized IDs
@@ -268,6 +239,7 @@ if __name__ == '__main__':
         'novembre': 'November',
         'décembre': 'December'
         }
+    
     if 'Move-In-Date' in df.columns:
         for key, value in fr_month_mapping.items():
             df['Move-In-Date'] = df['Move-In-Date'].str.replace(key, value)
@@ -335,23 +307,35 @@ if __name__ == '__main__':
     # Format bedrooms
     beds = ['bed', 'beds', 'bedroom', 'bedrooms', 'chambre', 'chambres']
     baths = ['bath', 'baths', 'bathroom', 'bathrooms', 'salle de bains', 'bains']
+    num_map = {'1.0': '1', '2.0': '2', '3.0': '3', '4.0': '4', '5.0': '5', '6.0': '6', '7.0': '7', '8.0': '8', '9.0': '9',
+               'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10'}
+    nums = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
     
     # Infer number of beds from text and fill nan
-    df['Bedrooms'] = df['Bedrooms'].fillna(text.str.extract(r'((\d).(%s))'%('|'.join(beds)), re.DOTALL, expand=False)[1])
+    df['Bedrooms'] = df['Bedrooms'].map(num_map).fillna(df['Bedrooms'])
+    df['Bedrooms'] = df['Bedrooms'].fillna(text.str.extract(r'((\b\d\b).(%s))'%('|'.join(beds)), re.DOTALL, expand=False)[1])
+    df['Bedrooms'] = df['Bedrooms'].fillna(text.str.extract(r'((\b%s\b).(%s))'%('|'.join(nums), '|'.join(beds)), re.DOTALL, expand=False)[1])
+    df['Bedrooms'] = df['Bedrooms'].map(num_map).fillna(df['Bedrooms'])
     df['NumberBedrooms'] = df['Bedrooms'].astype('str')
     df['NumberBedrooms'] = df['NumberBedrooms'].str.replace('Bachelor/Studio', '1')
     df['NumberBedrooms'] = df['NumberBedrooms'].str.replace('Den', '1')
-    df['NumberBedrooms'] = df['NumberBedrooms'].str.extractall(r'(\d)').astype('Int32').groupby(level=0).sum()
+    df['NumberBedrooms'] = df['NumberBedrooms'].fillna(df['Bedrooms'].map(num_map).astype('Int16')).astype(str)
+    df['NumberBedrooms'] = (df['NumberBedrooms'].str.extract(r'(\d)')[0].astype('Int16') + df['NumberBedrooms'].str.extract(r'(\d)*(\+)')[1].notnull().astype('Int16'))
     df['NumberBedrooms'] = df['NumberBedrooms'].astype('Int16')
     
-    df['Bathrooms'] = df['Bathrooms'].fillna(text.str.extract(r'((\d).(%s))'%('|'.join(baths)), re.DOTALL, expand=False)[1])
-    df['NumberBathrooms'] = df['Bathrooms'].astype('str').str.extract(r'(\d)')
-    df['NumberBathrooms'] = df['NumberBathrooms'].astype('Int16')
+    df['Bathrooms'] = df['Bathrooms'].fillna(text.str.extract(r'((\b\d\b).(%s))'%('|'.join(baths)), re.DOTALL, expand=False)[1])
+    df['Bathrooms'] = df['Bathrooms'].fillna(text.str.extract(r'((\b%s\b).(%s))'%('|'.join(nums), '|'.join(baths)), re.DOTALL, expand=False)[1])
+    df['Bathrooms'] = df['Bathrooms'].map(num_map).fillna(df['Bathrooms'])
+    df['NumberBathrooms'] = (df['Bathrooms'].astype('str').str.extract(r'(\d)\.(\d)')[0] + '.' + df['Bathrooms'].astype('str').str.extract(r'(\d)\.(\d)')[1]).astype('float16')
+    df['NumberBathrooms'] = df['NumberBathrooms'].fillna(df['Bathrooms'].str.extract(r'(\d)').astype('float16')[0])
+    df['NumberBathrooms'] = df['NumberBathrooms'].astype('float16')
     
     df['PricePerBedroom'] = (df['Price'] / df['NumberBedrooms']).round(decimals=0)
     
     df['PricePerSqFt'] = (df['Price'] / df['Size-(sqft)']).round(decimals=0)
     
+    # Remove duplicates
+    df = df.drop_duplicates(subset=['AdId', 'Poster', 'City', 'Price'], keep='first', ignore_index=True)
     
     # Convert datatypes
     df = df.convert_dtypes()
@@ -373,8 +357,21 @@ if __name__ == '__main__':
 
         # Write final data to file
         print("Writing to file...")
+        df = df.drop_duplicates(subset=['AdId', 'Poster', 'City', 'Price'], keep='first', ignore_index=True)
         df.to_csv(args.output_file, sep=',', header=True, index=False)
     
     print("Done!")
     
+    '''
+to_boolean =  ['Appliances-Laundry-(In-Unit)', 'Appliances-Dishwasher', 'Appliances-Fridge-/-Freezer',
+    'Personal-Outdoor-Space-Balcony', 'Amenities-Gym', 'Amenities-Bicycle-Parking', 
+    'Amenities-Storage-Space', 'Amenities-Elevator-in-Building', 'Furnished',
+    'Air-Conditioning', 'Utilities-Included-Hydro', 'Utilities-Included-Heat',
+    'Utilities-Included-Water', 'Wi-Fi-and-More-Internet', 'Wi-Fi-and-More-Cable-/-TV',
+    'Amenities-Pool', 'Elevator-Accessibility-Features-Wheelchair-accessible',
+    'Barrier-free-Entrances-and-Ramps', 'Visual-Aids', 'Accessible-Washrooms-in-Suite',
+    'Appliances-Laundry-(In-Building)', 'Personal-Outdoor-Space-Yard', 'Amenities-Concierge',
+    'Amenities-24-Hour-Security', 'Elevator-Accessibility-Features-Braille-Labels',
+    'Elevator-Accessibility-Features-Audio-Prompts']
+'''
     
