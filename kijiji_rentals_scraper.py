@@ -59,7 +59,7 @@ def collect_ads_info(ad_links, df_new):
             retry = Retry(connect=3, backoff_factor=0.5)
             adapter = HTTPAdapter(max_retries=retry)
             session.mount('http://', adapter)
-            ad_page = requests.get(ad_url, timeout=10)
+            ad_page = requests.get(ad_url, timeout=120)
             ad_soup = BeautifulSoup(ad_page.content, "html.parser")
             #time.sleep(3)
         except Exception as e:
@@ -206,7 +206,7 @@ if __name__ == '__main__':
     retry = Retry(connect=3, backoff_factor=0.5)
     adapter = HTTPAdapter(max_retries=retry)
     session.mount('http://', adapter)
-    page = requests.get(HOME_URL + args.city, timeout=5)
+    page = requests.get(HOME_URL + args.city, timeout=120)
     soup = BeautifulSoup(page.content, "html.parser")
     
     # Get url extension for rental listings - page 1
@@ -233,7 +233,7 @@ if __name__ == '__main__':
             retry = Retry(connect=3, backoff_factor=0.5)
             adapter = HTTPAdapter(max_retries=retry)
             session.mount('http://', adapter)
-            page = requests.get(rentals_url, timeout=5)
+            page = requests.get(rentals_url, timeout=120)
             soup = BeautifulSoup(page.content, "html.parser")
             
             # Get list of ads
