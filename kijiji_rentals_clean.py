@@ -26,8 +26,8 @@ if args.output_file == '':
 my_dtypes = {'Price': 'float64',
  'Location': 'object',
  'PostingDate': 'object',
- 'Poster': 'int64',
- 'AdId': 'int64',
+ 'Poster': 'object',
+ 'AdId': 'object',
  'ScrapeDate': 'object',
  'UnitType': 'object',
  'Bedrooms': 'object',
@@ -88,7 +88,7 @@ if __name__ == '__main__':
 
     # Load data file
     if os.path.isfile(args.input_file):
-        print("Loading raw file %s..."%args.input_file)
+        print("Loading file %s..."%args.input_file)
         df_raw = pd.read_csv(args.input_file, dtype=my_dtypes)
         df = df_raw.copy()
     else:

@@ -44,6 +44,66 @@ args = parser.parse_args()
 if args.output_file == '':
     args.output_file = args.raw_file.replace('.csv', '').split('_')[0] + '_processed.csv'
 
+my_dtypes = {'Price': 'float64',
+ 'Location': 'object',
+ 'PostingDate': 'object',
+ 'Poster': 'object',
+ 'AdId': 'object',
+ 'ScrapeDate': 'object',
+ 'UnitType': 'object',
+ 'Bedrooms': 'object',
+ 'Bathrooms': 'object',
+ 'Appliances-Laundry-(In-Unit)': 'boolean',
+ 'Appliances-Dishwasher': 'boolean',
+ 'Appliances-Fridge-/-Freezer': 'boolean',
+ 'Personal-Outdoor-Space-Balcony': 'boolean',
+ 'Amenities-Gym': 'boolean',
+ 'Amenities-Bicycle-Parking': 'boolean',
+ 'Amenities-Storage-Space': 'boolean',
+ 'Amenities-Elevator-in-Building': 'boolean',
+ 'Parking-Included': 'float64',
+ 'Agreement-Type': 'object',
+ 'Move-In-Date': 'object',
+ 'Pet-Friendly': 'object',
+ 'Size-(sqft)': 'float64',
+ 'Furnished': 'boolean',
+ 'Air-Conditioning': 'boolean',
+ 'Smoking-Permitted': 'object',
+ 'Utilities-Included-Hydro': 'boolean',
+ 'Utilities-Included-Heat': 'boolean',
+ 'Utilities-Included-Water': 'boolean',
+ 'Wi-Fi-and-More-Internet': 'boolean',
+ 'Wi-Fi-and-More-Cable-/-TV': 'boolean',
+ 'Amenities-Pool': 'boolean',
+ 'Elevator-Accessibility-Features-Wheelchair-accessible': 'boolean',
+ 'Barrier-free-Entrances-and-Ramps': 'boolean',
+ 'Visual-Aids': 'boolean',
+ 'Accessible-Washrooms-in-Suite': 'boolean',
+ 'Appliances-Laundry-(In-Building)': 'boolean',
+ 'Personal-Outdoor-Space-Yard': 'boolean',
+ 'Amenities-Concierge': 'boolean',
+ 'Amenities-24-Hour-Security': 'boolean',
+ 'More-Info': 'object',
+ 'Elevator-Accessibility-Features-Braille-Labels': 'boolean',
+ 'City': 'object',
+ 'RentalCategory': 'object',
+ 'Commercial': 'boolean',
+ 'Residential': 'boolean',
+ 'PostingDateDaysInAdvance': 'float64',
+ 'Preference-Male': 'bool',
+ 'Preference-Female': 'bool',
+ 'Male': 'bool',
+ 'Female': 'bool',
+ 'Sublet': 'bool',
+ 'Students': 'bool',
+ 'Preference-Any': 'bool',
+ 'NumberBedrooms': 'float64',
+ 'NumberBathrooms': 'float64',
+ 'PricePerBedroom': 'float64',
+ 'PricePerSqFt': 'float64',
+ 'Elevator-Accessibility-Features-Audio-Prompts': 'boolean'}
+
+
 fr_en_translation = {
     'Services-inclus-Électricité': 'Utilities-Included-Hydro',
     'Services-inclus-Chauffage': 'Utilities-Included-Heat',
@@ -159,13 +219,13 @@ if __name__ == '__main__':
     
     
     # Assign Poster with anonymized IDs
-    df['Poster'] = anonymize_values(df['Poster'])
+    #df['Poster'] = anonymize_values(df['Poster'])
     
     # Assign AdURL with anonymized IDs
-    df['AdURL'] = anonymize_values(df['AdURL'])
+    #df['AdURL'] = anonymize_values(df['AdURL'])
     
     # Assign AdId with anonymized IDs
-    df['AdId'] = anonymize_values(df['AdId'])
+    #df['AdId'] = anonymize_values(df['AdId'])
     
     # Extract specific rental info from title and description text
     text = (df['Title'].str.lower() + df['Description'].str.lower() + urls_expanded[5].str.lower()).str.replace('\n', '')
@@ -327,7 +387,7 @@ if __name__ == '__main__':
     df['Bathrooms'] = df['Bathrooms'].fillna(text.str.extract(r'((\b%s\b).(%s))'%('|'.join(nums), '|'.join(baths)), re.DOTALL, expand=False)[1])
     df['Bathrooms'] = df['Bathrooms'].map(num_map).fillna(df['Bathrooms'])
     df['NumberBathrooms'] = (df['Bathrooms'].astype('str').str.extract(r'(\d)\.(\d)')[0] + '.' + df['Bathrooms'].astype('str').str.extract(r'(\d)\.(\d)')[1]).astype('float16')
-    df['NumberBathrooms'] = df['NumberBathrooms'].fillna(df['Bathrooms'].str.extract(r'(\d)').astype('float16')[0])
+    df['NumberBathrooms'] = df['NumberBathrooms'].fillna(df['Bathrooms'].astype(str).str.extract(r'(\d)').astype('float16')[0])
     df['NumberBathrooms'] = df['NumberBathrooms'].astype('float16')
     
     df['PricePerBedroom'] = (df['Price'] / df['NumberBedrooms']).round(decimals=0)
@@ -338,10 +398,16 @@ if __name__ == '__main__':
     df = df.drop_duplicates(subset=['AdId', 'Poster', 'City', 'Price'], keep='first', ignore_index=True)
     
     # Convert datatypes
-    df = df.convert_dtypes()
+    #df['Poster'] = df['Poster'].astype(str)
+    #df['AdId'] = df['AdId'].astype(str)
+    #df = df.convert_dtypes()
+    cols = [ c for c in df.columns if c in my_dtypes.keys() ]
+    for c in cols:
+        df[c] = df[c].astype(my_dtypes[c])
+    
     
     print("Writing to file...")
-    df.to_csv(args.output_file, sep=',', header=True, index=False)
+    df.to_csv(args.output_file, sep=',', header=True, index=False, columns=cols)
     
     if args.lat_long:
         print("Continuing to get longitude/latitude info...")
