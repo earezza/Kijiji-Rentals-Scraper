@@ -31,35 +31,44 @@ import pandas as pd
 import numpy as np
 import time
 import re
+import random
 import tqdm
 import argparse
-
 
 describe_help = 'python kijiji_rentals_scraper.py --file ads.csv --city ottawa'
 parser = argparse.ArgumentParser(description=describe_help)
 # User defined options
 parser.add_argument('-f', '--file', help='File (.csv) to update results, will create if nonexisting', type=str, default="ads.csv")
 parser.add_argument('-c', '--city', help='City to search ads', type=str, default="")
+parser.add_argument('-n', '--num_pages', help='Number of pages to scrape', type=int, default=100)
 args = parser.parse_args()
 
 
 def collect_ads_info(ad_links, df_new):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive"
+    }
     
     row = df_new.shape[0]
     for ad in tqdm.tqdm(ad_links):
-        
+        '''
         # ignore links to images
         if 'http' in ad['href'] and 'imageNumber=' in ad['href']:
             continue
 
         ad_url = HOME_URL[:-1] + ad['href']
-        
+        '''
+        ad_url = ad
         try:
             session = requests.Session()
             retry = Retry(connect=3, backoff_factor=0.5)
             adapter = HTTPAdapter(max_retries=retry)
             session.mount('http://', adapter)
-            ad_page = requests.get(ad_url, timeout=120)
+            ad_page = requests.get(ad_url, timeout=120, headers=headers)
             ad_soup = BeautifulSoup(ad_page.content, "html.parser")
             #time.sleep(3)
         except Exception as e:
@@ -69,7 +78,8 @@ def collect_ads_info(ad_links, df_new):
         
         try:
             title = '_'.join(np.unique(ad_soup.find_all('h1', re.compile("title*"))))
-            price = '_'.join(np.unique(ad_soup.find_all('span', re.compile("currentPrice*"))))
+            #price = '_'.join(np.unique(ad_soup.find_all('span', re.compile("currentPrice*"))))
+            price = ad_soup.find('span', {'itemprop': 'price'}).get('content')
             location = '_'.join(np.unique(ad_soup.find_all('span', re.compile("address"))))
             ad_id = '_'.join(np.unique(ad_soup.find_all('a', re.compile("adId*"))))
             try:
@@ -177,6 +187,7 @@ def write_data(df_old, df_new, filename):
     df.drop_duplicates(subset=['Title', 'Location', 'Poster', 'Description'], ignore_index=True, inplace=True)
     
     cities = df['AdURL'].str.split('/', expand=True)
+    #print(cities)
     df['City'] = cities[4]
     
     print("Writing to file...")
@@ -200,19 +211,35 @@ if __name__ == '__main__':
         
         
     print("Fetching kijiji.ca...")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive"
+    }
     # Kijiji homepage
     HOME_URL = 'https://www.kijiji.ca/'
     session = requests.Session()
     retry = Retry(connect=3, backoff_factor=0.5)
     adapter = HTTPAdapter(max_retries=retry)
     session.mount('http://', adapter)
-    page = requests.get(HOME_URL + args.city, timeout=120)
+    page = requests.get(HOME_URL + args.city, timeout=120, headers=headers)
     soup = BeautifulSoup(page.content, "html.parser")
-    
+    #print(HOME_URL + args.city)
     # Get url extension for rental listings - page 1
     try:
-        rentals_links = [i for i in soup.find_all(href=True) if 'for-rent' in i['href']]
-        rentals_url = HOME_URL[:-1] + rentals_links[0]['href']
+        links = soup.find_all('a')
+        for link in links:
+            if 'b-real-estate' in link.get('href'):
+                href = link.get('href')
+                break
+        # rentals_links = [i for i in soup.find_all(href=True) if 'for-rent' in i['href']]
+        #rentals_url = HOME_URL[:-1] + rentals_links[0]['href']
+        # rentals_url = rentals_links[0]['href']
+        rentals_url = HOME_URL[:-1] + href
+        #print(rentals_url)
     except IndexError:
         print("Check URL of city and input --city with URL after %s"%HOME_URL)
         exit()
@@ -226,35 +253,37 @@ if __name__ == '__main__':
     page_number = 1
     print("Grab a coffee, this will take some time!\n")
     while not done:
-        
+        random_seconds = random.uniform(1, 3)
+        time.sleep(random_seconds)
         try:
             print("Page %s\n"%page_number)
             session = requests.Session()
             retry = Retry(connect=3, backoff_factor=0.5)
             adapter = HTTPAdapter(max_retries=retry)
             session.mount('http://', adapter)
-            page = requests.get(rentals_url, timeout=120)
+            page = requests.get(rentals_url, timeout=120, headers=headers)
             soup = BeautifulSoup(page.content, "html.parser")
             
             # Get list of ads
             ad_list = soup.find_all('ul', {'data-testid': 'srp-search-list'})
             
             # ad_list contains 2 elements, first is "featured" ads, second is all relevant ads
-            for element in range(1, len(ad_list)):
+            for element in range(0, len(ad_list)):
                 ads = soup.find_all('ul', {'data-testid': 'srp-search-list'})[element]
                 ad_links = ads.find_all("a", href=True)
-                ad_links = [ ad for ad in ad_links if 'http' not in ad['href'] and 'imageNumber=' not in ad['href'] ]
+                #ad_links = [ ad for ad in ad_links if 'http' not in ad['href'] and 'imageNumber=' not in ad['href'] ]
+                ad_links = [ ad.get('href') for ad in ad_links ]
                 
                 # Remove any if already exist in old data
-                ad_links = [ ad for ad in ad_links if str(HOME_URL[:-1] + ad['href']) not in df_old['AdURL'].values ]
+                #ad_links = [ ad for ad in ad_links if str(HOME_URL[:-1] + ad['href']) not in df_old['AdURL'].values ]
+                ad_links = [ ad for ad in ad_links if ad not in df_old['AdURL'].values ]
                 
                 df_new = collect_ads_info(ad_links, df_new)
                 
             # To get next page ads
             try:
-                next_html = soup.find('li', {'data-testid': 'pagination-next-link'})
-                if next_html != None:
-                    rentals_url = next_html.find('a', href=True)['href']
+                if page_number < args.num_pages:
+                    rentals_url = HOME_URL[:-1] + '/'.join(href.split('/')[:-1]) + '/page-%s/'%(page_number + 1) + href.split('/')[-1]
                 else:
                     done = True
             except:
