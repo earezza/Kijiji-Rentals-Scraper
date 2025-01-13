@@ -233,6 +233,7 @@ if __name__ == '__main__':
     #df['Text'] = text
     
     # Format Price
+    df['Price'] = df['Price'].astype(str)
     df['Price'] = df['Price'].fillna(text.str.extract(r'((\$)(\d+))', re.DOTALL, expand=False)[0])
     df['Price'] = df['Price'].str.replace('$', '', regex=False)
     df['Price'] = df['Price'].str.replace(',', '', regex=False)
